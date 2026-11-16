@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-condensed: "Helvetica Neue", "Helvetica Condensed", "Arial Narrow", Helvetica, Arial, sans-serif;
+  --font-mono: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --color-paper: #FAF8F5;
+  --color-paper-warm: #F3EFE8;
+  --color-ink: #141619;
+  --color-crimson: #C81E2B;
+  --color-crimson-dark: #A11622;
+}
+
+@layer base {
+  html, body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+}
+
+.font-condensed {
+  font-family: "Helvetica Neue", "Helvetica Condensed", "Arial Narrow", Helvetica, Arial, sans-serif;
+  font-stretch: condensed;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
