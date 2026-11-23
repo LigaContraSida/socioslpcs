@@ -405,14 +405,16 @@ export const HomePage: React.FC<HomePageProps> = ({ user, onNavigate, onRefreshU
               className="text-left bg-white rounded-xl p-5 border border-stone-200 hover:border-stone-400 transition-colors flex flex-col justify-between group"
             >
               <div>
-                <div className="flex items-start gap-3">
-                  <img
-                    src={`/api/partners/${item.id}/logo`}
-                    alt={`Logótipo ${item.name}`}
-                    referrerPolicy="no-referrer"
-                    className="w-11 h-11 rounded-xl border border-stone-200 bg-white p-1 object-contain shrink-0"
-                  />
-                  <div className="min-w-0">
+                <div className="flex items-start gap-4">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl border border-stone-200 bg-white p-2 flex items-center justify-center shrink-0 overflow-hidden shadow-xs group-hover:border-stone-300 transition-colors">
+                    <img
+                      src={`/api/partners/${item.id}/logo`}
+                      alt={`Logótipo ${item.name}`}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-stone-500 truncate">
                       <span>{item.area}</span>
                       {item.pays_quota && (

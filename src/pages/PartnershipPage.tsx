@@ -887,12 +887,14 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
               </div>
 
               {logoPreview ? (
-                <div className="flex items-center gap-4 bg-white p-3 rounded-lg border border-stone-200">
-                  <img
-                    src={logoPreview}
-                    alt="Pré-visualização do logótipo"
-                    className="w-16 h-16 rounded-lg border border-stone-200 object-contain p-1 bg-white shrink-0"
-                  />
+                <div className="flex items-center gap-4 bg-white p-3.5 rounded-xl border border-stone-200">
+                  <div className="w-24 h-24 rounded-2xl border border-stone-200 bg-white flex items-center justify-center p-2 shrink-0 overflow-hidden shadow-xs">
+                    <img
+                      src={logoPreview}
+                      alt="Pré-visualização do logótipo"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
                   <div className="min-w-0 flex-1 text-xs">
                     <strong className="text-[#141619] block truncate">{logoFile?.name}</strong>
                     <span className="text-stone-500 tabular-nums">

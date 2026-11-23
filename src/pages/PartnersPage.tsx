@@ -458,8 +458,8 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
 
                   <div className="p-6 space-y-3.5">
                     {/* Partner Logo + Name + Unboxed Metadata */}
-                    <div className="flex items-start gap-3.5">
-                      <div className="w-13 h-13 rounded-xl border border-stone-200 bg-white p-1.5 flex items-center justify-center shrink-0 overflow-hidden">
+                    <div className="flex items-start gap-4">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border border-stone-200 bg-white p-2 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
                         {showLogoImg ? (
                           <img
                             src={partner.logo_url!}
@@ -471,7 +471,7 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
                             className="w-full h-full object-contain"
                           />
                         ) : (
-                          <span className="font-display text-sm font-bold text-stone-700 tracking-tight">
+                          <span className="font-display text-lg sm:text-xl font-bold text-stone-700 tracking-tight">
                             {partnerInitials || 'LP'}
                           </span>
                         )}
@@ -642,13 +642,13 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-3.5 border-b border-stone-200 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-3.5 min-w-0">
                 {lightboxData.partner.logo_url && (
                   <img
                     src={lightboxData.partner.logo_url}
                     alt={lightboxData.partner.name}
                     referrerPolicy="no-referrer"
-                    className="w-8 h-8 rounded-lg border border-stone-200 object-contain bg-white p-0.5 shrink-0"
+                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border border-stone-200 object-contain bg-white p-1.5 shrink-0"
                   />
                 )}
                 <div className="min-w-0">

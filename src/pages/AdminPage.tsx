@@ -1484,10 +1484,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <img
                                   src={p.logo_url}
                                   alt={`Logótipo ${p.name}`}
-                                  className="w-10 h-10 rounded-lg border border-stone-200 bg-white object-contain p-1 shrink-0"
+                                  className="w-14 h-14 rounded-xl border border-stone-200 bg-white object-contain p-1.5 shrink-0"
                                 />
                               ) : (
-                                <div className="w-10 h-10 rounded-lg border border-stone-200 bg-stone-50 flex items-center justify-center text-[10px] font-bold text-stone-400 shrink-0">
+                                <div className="w-14 h-14 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-center text-xs font-bold text-stone-400 shrink-0">
                                   S/L
                                 </div>
                               )}
@@ -1701,10 +1701,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <img
                                   src={inq.logo_url}
                                   alt={`Logótipo ${inq.company_name}`}
-                                  className="w-11 h-11 rounded-lg border border-stone-200 bg-white object-contain p-1 shrink-0"
+                                  className="w-14 h-14 rounded-xl border border-stone-200 bg-white object-contain p-1.5 shrink-0"
                                 />
                               ) : (
-                                <div className="w-11 h-11 rounded-lg border border-stone-200 bg-stone-50 flex items-center justify-center text-[10px] font-bold text-stone-400 shrink-0">
+                                <div className="w-14 h-14 rounded-xl border border-stone-200 bg-stone-50 flex items-center justify-center text-xs font-bold text-stone-400 shrink-0">
                                   S/L
                                 </div>
                               )}
@@ -3035,7 +3035,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-xl border border-stone-200 bg-white flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
+                    <div className="w-24 h-24 rounded-2xl border border-stone-200 bg-white flex items-center justify-center p-2 shrink-0 overflow-hidden shadow-xs">
                       {partnerLogoPreview || partnerExistingLogoUrl ? (
                         <img
                           src={partnerLogoPreview || partnerExistingLogoUrl || ''}
@@ -3043,7 +3043,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           className="w-full h-full object-contain"
                         />
                       ) : (
-                        <Building2 className="w-6 h-6 text-stone-300" />
+                        <Building2 className="w-8 h-8 text-stone-300" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0 space-y-1.5">
