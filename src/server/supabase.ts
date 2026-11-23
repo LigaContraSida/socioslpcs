@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { db } from './db.ts';
 
 export interface SupabaseStatus {
@@ -7,10 +8,87 @@ export interface SupabaseStatus {
   hasAnonKey: boolean;
 }
 
+const DEFAULT_SUPABASE_URL = '';
+const DEFAULT_SUPABASE_ANON_KEY = '';
+const DEFAULT_SUPABASE_SERVICE_ROLE_KEY = '';
+
+function normalizeSupabaseUrl(raw: string): string {
+  return (raw || '')
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
+}
+
+function ensureSettingsTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+}
+
+function getSetting(key: string): string {
+  try {
+    ensureSettingsTable();
+    const row = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveSupabaseConfig(input: {
+  url: string;
+  anonKey?: string;
+  serviceRoleKey?: string;
+}) {
+  ensureSettingsTable();
+  const upsert = db.prepare(`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `);
+
+  const cleanUrl = normalizeSupabaseUrl(input.url);
+  const cleanAnon = (input.anonKey || '').trim();
+  const cleanService = (input.serviceRoleKey || '').trim();
+
+  if (cleanUrl) {
+    upsert.run('SUPABASE_URL', cleanUrl);
+    process.env.SUPABASE_URL = cleanUrl;
+  }
+  if (cleanAnon) {
+    upsert.run('SUPABASE_ANON_KEY', cleanAnon);
+    process.env.SUPABASE_ANON_KEY = cleanAnon;
+  }
+  if (cleanService) {
+    upsert.run('SUPABASE_SERVICE_ROLE_KEY', cleanService);
+    process.env.SUPABASE_SERVICE_ROLE_KEY = cleanService;
+  }
+}
+
 export function getSupabaseConfig(): SupabaseStatus & { apiKey: string | null } {
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
-  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  const url = normalizeSupabaseUrl(
+    getSetting('SUPABASE_URL') ||
+      process.env.SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL ||
+      DEFAULT_SUPABASE_URL
+  );
+  const serviceRoleKey = (
+    getSetting('SUPABASE_SERVICE_ROLE_KEY') ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    DEFAULT_SUPABASE_SERVICE_ROLE_KEY
+  ).trim();
+  const anonKey = (
+    getSetting('SUPABASE_ANON_KEY') ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    DEFAULT_SUPABASE_ANON_KEY
+  ).trim();
   const apiKey = serviceRoleKey || anonKey || null;
 
   return {
@@ -29,14 +107,18 @@ async function supabaseRestUpsert(table: string, rows: any[], onConflict = 'id')
   }
 
   const endpoint = `${cfg.url}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`;
+  const headers: Record<string, string> = {
+    apikey: cfg.apiKey,
+    'Content-Type': 'application/json',
+    Prefer: 'resolution=merge-duplicates,return=minimal',
+  };
+  if (cfg.apiKey.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${cfg.apiKey}`;
+  }
+
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      apikey: cfg.apiKey,
-      Authorization: `Bearer ${cfg.apiKey}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=minimal',
-    },
+    headers,
     body: JSON.stringify(rows),
   });
 
@@ -54,7 +136,7 @@ export async function syncAllDataToSupabase() {
     return {
       ok: false,
       error:
-        'Variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY ainda não estão configuradas no ficheiro .env.',
+        'Chaves do Supabase ainda não configuradas. Preencha o Project URL e a Service Role Key.',
     };
   }
 

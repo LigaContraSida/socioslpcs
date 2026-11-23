@@ -31,7 +31,7 @@ import {
   buildPartnerProtocolText,
   formatPortugueseDate,
 } from './mailer.ts';
-import { getSupabaseConfig, syncAllDataToSupabase } from './supabase.ts';
+import { getSupabaseConfig, saveSupabaseConfig, syncAllDataToSupabase } from './supabase.ts';
 
 const router = Router();
 
@@ -3877,6 +3877,39 @@ router.get('/admin/supabase-status', requireAdmin, (_req: Request, res: Response
     url: cfg.url,
     hasServiceRoleKey: cfg.hasServiceRoleKey,
     hasAnonKey: cfg.hasAnonKey,
+  });
+});
+
+router.post('/admin/supabase-config', requireAdmin, (req: Request, res: Response) => {
+  const admin = getSessionUser(req)!;
+  const { url, anonKey, serviceRoleKey } = req.body;
+  if (!url || !String(url).trim().startsWith('https://')) {
+    return res.status(400).json({
+      error: 'Indique um Project URL válido do Supabase (ex.: https://xyz.supabase.co).',
+    });
+  }
+  saveSupabaseConfig({
+    url: String(url),
+    anonKey: anonKey ? String(anonKey) : undefined,
+    serviceRoleKey: serviceRoleKey ? String(serviceRoleKey) : undefined,
+  });
+
+  logAudit(
+    admin.id,
+    'admin_config_supabase',
+    `Credenciais de ligação ao Supabase atualizadas (${String(url).trim()})`,
+    req.ip,
+    req.headers['user-agent']
+  );
+
+  const cfg = getSupabaseConfig();
+  return res.json({
+    success: true,
+    configured: cfg.configured,
+    url: cfg.url,
+    hasServiceRoleKey: cfg.hasServiceRoleKey,
+    hasAnonKey: cfg.hasAnonKey,
+    message: 'Chaves de acesso do Supabase guardadas com sucesso!',
   });
 });
 
