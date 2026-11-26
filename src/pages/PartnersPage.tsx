@@ -12,7 +12,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  Globe,
 } from 'lucide-react';
+import { formatPartnerLocation } from '../data/portugalLocations.ts';
 
 interface PartnersPageProps {
   user: User | null;
@@ -34,10 +36,12 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
   const [filterMeta, setFilterMeta] = useState<{
     areaCounts: Record<string, number>;
     districts: string[];
+    allCounties?: string[];
     citiesByDistrict: Record<string, string[]>;
   }>({
     areaCounts: {},
     districts: [],
+    allCounties: [],
     citiesByDistrict: {},
   });
 
@@ -274,7 +278,21 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
         {/* Location & Type Dropdowns */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-stone-100">
           <div>
-            <label className="text-xs font-semibold text-stone-600 block mb-1.5">Distrito</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-stone-600 block">Distrito</label>
+              {selectedDistrict !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDistrict('all');
+                    setSelectedCity('all');
+                  }}
+                  className="text-[11px] text-[#C81E2B] hover:underline"
+                >
+                  Limpar distrito
+                </button>
+              )}
+            </div>
             <select
               value={selectedDistrict}
               onChange={(e) => {
@@ -293,18 +311,36 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-stone-600 block mb-1.5">Localidade</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-stone-600 block">Concelho</label>
+              {selectedCity !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCity('all')}
+                  className="text-[11px] text-[#C81E2B] hover:underline"
+                >
+                  Limpar concelho
+                </button>
+              )}
+            </div>
             <select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
-              disabled={selectedDistrict === 'all'}
-              className="w-full py-2 px-3 rounded-lg border border-stone-300 bg-white text-sm text-[#141619] disabled:opacity-50 focus:outline-hidden focus:border-[#C81E2B]"
+              className="w-full py-2 px-3 rounded-lg border border-stone-300 bg-white text-sm text-[#141619] focus:outline-hidden focus:border-[#C81E2B]"
             >
               <option value="all">
-                {selectedDistrict === 'all' ? 'Escolha primeiro um distrito' : 'Todas as localidades'}
+                {selectedDistrict === 'all'
+                  ? 'Todos os Concelhos'
+                  : `Todos os concelhos de ${selectedDistrict}`}
               </option>
-              {selectedDistrict !== 'all' &&
-                filterMeta.citiesByDistrict[selectedDistrict]?.map((c) => (
+              {(selectedDistrict !== 'all'
+                ? filterMeta.citiesByDistrict[selectedDistrict] || []
+                : filterMeta.allCounties && filterMeta.allCounties.length > 0
+                ? filterMeta.allCounties
+                : Object.values(filterMeta.citiesByDistrict).flat()
+              )
+                .filter((c, idx, arr) => arr.indexOf(c) === idx)
+                .map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -486,15 +522,36 @@ export const PartnersPage: React.FC<PartnersPageProps> = ({ user, initialQuery, 
                         <h3 className="font-display text-lg sm:text-xl font-bold text-[#141619] tracking-tight leading-snug">
                           {partner.name}
                         </h3>
-                        <div className="flex items-center gap-1 text-xs text-stone-500">
-                          <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                          <span className="truncate">
-                            {partner.city}
-                            {partner.district && partner.district !== partner.city
-                              ? ` · ${partner.district}`
-                              : ''}
-                          </span>
-                        </div>
+                        {/* Localização por baixo do nome da entidade parceira */}
+                        {(() => {
+                          const loc = formatPartnerLocation(partner.district, partner.city);
+                          return (
+                            <div className="pt-0.5 space-y-0.5">
+                              <div className="flex items-start gap-1.5 text-xs text-stone-600">
+                                <MapPin className="w-3.5 h-3.5 text-[#C81E2B] shrink-0 mt-0.5" />
+                                <div className="min-w-0 leading-snug">
+                                  {loc.isNational ? (
+                                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs">
+                                      <Globe className="w-3 h-3 text-emerald-600 shrink-0" />
+                                      <span>Âmbito Nacional (Todo o País)</span>
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <span className="font-semibold text-stone-800">
+                                        Distrito(s): {loc.districtsText}
+                                      </span>
+                                      {loc.countiesText && loc.countiesText !== 'Todos os concelhos do distrito' && (
+                                        <span className="text-stone-500 block text-[11px] mt-0.5">
+                                          Concelho(s): {loc.countiesText}
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
 

@@ -14,6 +14,7 @@ import {
   FileCheck,
   ShieldCheck,
   Store,
+  MapPin,
 } from 'lucide-react';
 import heroCommunityImg from '../assets/images/hero_lpcs_community_1794510456196.jpg';
 
@@ -427,6 +428,12 @@ export const HomePage: React.FC<HomePageProps> = ({ user, onNavigate, onRefreshU
                     <h3 className="font-display text-base font-bold text-[#141619] group-hover:text-[#C81E2B] transition-colors mt-0.5 truncate">
                       {item.name}
                     </h3>
+                    <div className="flex items-center gap-1 text-[11px] text-stone-500 mt-1 truncate">
+                      <MapPin className="w-3 h-3 text-[#C81E2B] shrink-0" />
+                      <span className="truncate">
+                        {item.district === 'Nacional' ? 'Âmbito Nacional' : `${item.city} (${item.district})`}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <p className="text-sm font-semibold text-[#C81E2B] mt-3">

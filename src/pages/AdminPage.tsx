@@ -3204,27 +3204,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-stone-700 block mb-1">Distrito *</label>
+                  <label className="text-xs font-bold text-stone-700 block mb-1">
+                    Distrito(s) Aplicável(eis) *
+                  </label>
                   <input
                     type="text"
                     required
                     value={partnerFormData.district}
                     onChange={(e) => setPartnerFormData({ ...partnerFormData, district: e.target.value })}
                     className="w-full p-2.5 rounded-lg border border-stone-300 text-xs"
-                    placeholder="Ex: Lisboa, Porto, Coimbra ou Nacional"
+                    placeholder="Ex: Lisboa, Porto ou Nacional (separados por vírgula)"
                   />
+                  <span className="text-[10px] text-stone-400 mt-0.5 block">
+                    Pode indicar múltiplos distritos ou "Nacional"
+                  </span>
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-stone-700 block mb-1">Localidade *</label>
+                  <label className="text-xs font-bold text-stone-700 block mb-1">
+                    Concelho(s) Aplicável(eis) *
+                  </label>
                   <input
                     type="text"
                     required
                     value={partnerFormData.city}
                     onChange={(e) => setPartnerFormData({ ...partnerFormData, city: e.target.value })}
                     className="w-full p-2.5 rounded-lg border border-stone-300 text-xs"
-                    placeholder="Ex: Lisboa, Online ou Matosinhos"
+                    placeholder="Ex: Cascais, Sintra, Lisboa ou Todos os concelhos"
                   />
+                  <span className="text-[10px] text-stone-400 mt-0.5 block">
+                    Pode indicar múltiplos concelhos separados por vírgula
+                  </span>
                 </div>
 
                 <div>

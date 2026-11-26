@@ -1077,12 +1077,14 @@ router.get('/partners', (req: Request, res: Response) => {
     params.push(area);
   }
   if (district && typeof district === 'string' && district !== 'all') {
-    query += ' AND district = ?';
-    params.push(district);
+    query +=
+      ' AND (district = ? OR district LIKE ? OR district LIKE ? OR district LIKE ? OR district = "Nacional" OR district LIKE "%Nacional%")';
+    params.push(district, `${district},%`, `%, ${district},%`, `%, ${district}`);
   }
   if (city && typeof city === 'string' && city !== 'all') {
-    query += ' AND city = ?';
-    params.push(city);
+    query +=
+      ' AND (city = ? OR city LIKE ? OR city LIKE ? OR city LIKE ? OR city = "Nacional" OR city = "Todos os Concelhos" OR city = "Todos os concelhos" OR city LIKE "%Nacional%" OR district = "Nacional" OR district LIKE "%Nacional%")';
+    params.push(city, `${city},%`, `%, ${city},%`, `%, ${city}`);
   }
   if (benefit_type && typeof benefit_type === 'string' && benefit_type !== 'all') {
     query += ' AND benefit_type = ?';
@@ -1155,20 +1157,44 @@ router.get('/partners', (req: Request, res: Response) => {
   const allActive = db.prepare('SELECT area, district, city FROM partners WHERE is_active = 1').all() as any[];
   const areaCounts: Record<string, number> = {};
   const districtsSet = new Set<string>();
+  const allCountiesSet = new Set<string>();
   const citiesByDistrict: Record<string, Set<string>> = {};
 
   for (const item of allActive) {
     areaCounts[item.area] = (areaCounts[item.area] || 0) + 1;
-    districtsSet.add(item.district);
-    if (!citiesByDistrict[item.district]) {
-      citiesByDistrict[item.district] = new Set();
+
+    const distList = (item.district || '')
+      .split(/[,;\n]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    const countyList = (item.city || '')
+      .split(/[,;\n]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    countyList.forEach((c: string) => {
+      if (c && !c.toLowerCase().includes('todos os concelhos')) {
+        allCountiesSet.add(c);
+      }
+    });
+
+    for (const d of distList) {
+      districtsSet.add(d);
+      if (!citiesByDistrict[d]) {
+        citiesByDistrict[d] = new Set();
+      }
+      for (const c of countyList) {
+        if (c && !c.toLowerCase().includes('todos os concelhos')) {
+          citiesByDistrict[d].add(c);
+        }
+      }
     }
-    citiesByDistrict[item.district].add(item.city);
   }
 
   const citiesFormatted: Record<string, string[]> = {};
   for (const [dist, set] of Object.entries(citiesByDistrict)) {
-    citiesFormatted[dist] = Array.from(set).sort();
+    citiesFormatted[dist] = Array.from(set).sort((a, b) => a.localeCompare(b, 'pt'));
   }
 
   return res.json({
@@ -1177,7 +1203,8 @@ router.get('/partners', (req: Request, res: Response) => {
     userHasQuota: hasActiveQuota,
     filterMeta: {
       areaCounts,
-      districts: Array.from(districtsSet).sort(),
+      districts: Array.from(districtsSet).sort((a, b) => a.localeCompare(b, 'pt')),
+      allCounties: Array.from(allCountiesSet).sort((a, b) => a.localeCompare(b, 'pt')),
       citiesByDistrict: citiesFormatted,
     },
   });

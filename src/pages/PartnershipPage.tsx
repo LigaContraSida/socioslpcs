@@ -19,10 +19,19 @@ import {
   Copy,
   Check,
   FileText,
+  MapPin,
+  Plus,
+  Globe,
+  Building,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import partnershipStreetImg from '../assets/images/partnership_corporate_alliance_1794510456114.jpg';
 import { LpcsLogo } from '../components/LpcsLogo.tsx';
+import {
+  PORTUGAL_DISTRICTS,
+  PORTUGAL_COUNTIES_BY_DISTRICT,
+  ALL_PORTUGAL_COUNTIES,
+} from '../data/portugalLocations.ts';
 
 interface PartnershipPageProps {
   onNavigate: (path: string) => void;
@@ -57,6 +66,68 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [serviceImages, setServiceImages] = useState<Array<{ file: File; preview: string }>>([]);
+
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>(['Lisboa']);
+  const [isNational, setIsNational] = useState<boolean>(false);
+  const [selectedCounties, setSelectedCounties] = useState<string[]>(['Lisboa']);
+  const [customCountyInput, setCustomCountyInput] = useState<string>('');
+
+  const handleToggleNational = () => {
+    if (!isNational) {
+      setIsNational(true);
+      setSelectedDistricts(['Âmbito Nacional']);
+      setSelectedCounties([]);
+    } else {
+      setIsNational(false);
+      setSelectedDistricts(['Lisboa']);
+      setSelectedCounties(['Lisboa']);
+    }
+  };
+
+  const handleAddDistrict = (districtName: string) => {
+    if (!districtName || districtName === 'all' || districtName === '') return;
+    if (districtName.includes('Nacional')) {
+      handleToggleNational();
+      return;
+    }
+    if (!selectedDistricts.includes(districtName)) {
+      setSelectedDistricts((prev) => [...prev, districtName]);
+    }
+  };
+
+  const handleRemoveDistrict = (districtName: string) => {
+    setSelectedDistricts((prev) => {
+      const next = prev.filter((d) => d !== districtName);
+      return next;
+    });
+    // Remove counties that belong exclusively to this removed district
+    const countiesOfThisDistrict = PORTUGAL_COUNTIES_BY_DISTRICT[districtName] || [];
+    setSelectedCounties((prev) => prev.filter((c) => !countiesOfThisDistrict.includes(c)));
+  };
+
+  const handleAddCounty = (countyName: string) => {
+    if (!countyName || countyName === 'all' || countyName === '') return;
+    if (!selectedCounties.includes(countyName)) {
+      setSelectedCounties((prev) => [...prev, countyName]);
+    }
+  };
+
+  const handleRemoveCounty = (countyName: string) => {
+    setSelectedCounties((prev) => prev.filter((c) => c !== countyName));
+  };
+
+  const handleAddAllCountiesForDistrict = (districtName: string) => {
+    const counties = PORTUGAL_COUNTIES_BY_DISTRICT[districtName] || [];
+    setSelectedCounties((prev) => Array.from(new Set([...prev, ...counties])));
+  };
+
+  const handleAddCustomCounty = () => {
+    const trimmed = customCountyInput.trim();
+    if (trimmed && !selectedCounties.includes(trimmed)) {
+      setSelectedCounties((prev) => [...prev, trimmed]);
+      setCustomCountyInput('');
+    }
+  };
 
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -194,6 +265,23 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
       return;
     }
 
+    if (!isNational && selectedDistricts.length === 0) {
+      setErrorMsg('Indique pelo menos um distrito onde o benefício pode ser usado ou ative o Âmbito Nacional.');
+      return;
+    }
+
+    const finalDistrict = isNational
+      ? 'Nacional'
+      : selectedDistricts.length > 0
+      ? selectedDistricts.join(', ')
+      : 'Nacional';
+
+    const finalCity = isNational
+      ? 'Todos os concelhos'
+      : selectedCounties.length > 0
+      ? selectedCounties.join(', ')
+      : 'Todos os concelhos';
+
     setSubmitting(true);
 
     try {
@@ -201,6 +289,8 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
       Object.entries(formData).forEach(([key, val]) => {
         payload.append(key, val);
       });
+      payload.set('district', finalDistrict);
+      payload.set('city', finalCity);
       payload.append('logo', logoFile);
       serviceImages.forEach((item) => {
         payload.append('service_images', item.file);
@@ -221,6 +311,10 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
 
       setSuccessMsg(data.message);
       setSubmitting(false);
+      setSelectedDistricts(['Lisboa']);
+      setIsNational(false);
+      setSelectedCounties(['Lisboa']);
+      setCustomCountyInput('');
       setFormData({
         company_name: '',
         nif: '',
@@ -594,32 +688,224 @@ export const PartnershipPage: React.FC<PartnershipPageProps> = ({ onNavigate }) 
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1.5">
-                Distrito / Abrangência *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.district}
-                onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                placeholder="Lisboa, Porto, Coimbra, Nacional..."
-                className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-[#FAF8F5]/50 text-sm focus:outline-hidden focus:bg-white focus:border-[#C81E2B]"
-              />
-            </div>
+            {/* SECÇÃO LOCALIZAÇÃO & ABRANGÊNCIA: DISTRITOS E CONCELHOS */}
+            <div className="col-span-1 md:col-span-2 bg-[#FAF8F5] border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200/80 pb-3">
+                <div>
+                  <label className="block text-sm font-bold text-[#141619]">
+                    Distrito(s) e Concelho(s) em que o benefício pode ser usado *
+                  </label>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Indique onde os associados podem usufruir da oferta. Pode selecionar múltiplos distritos e concelhos, ou optar por Âmbito Nacional.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleNational}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                    isNational
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-white border border-stone-300 text-stone-700 hover:border-emerald-600 hover:text-emerald-700'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>{isNational ? '✓ Âmbito Nacional Ativo' : 'Ativar Âmbito Nacional (Todo o País)'}</span>
+                </button>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1.5">
-                Localidade / Online *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                placeholder="Ex: Lisboa ou Online"
-                className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-[#FAF8F5]/50 text-sm focus:outline-hidden focus:bg-white focus:border-[#C81E2B]"
-              />
+              {isNational ? (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-start sm:items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    O benefício ficará visível e pesquisável em <strong>todo o território nacional</strong> (ideal para comércio online, serviços digitais ou marcas com presença em todo o país).
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* 1. SELEÇÃO DE DISTRITOS */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-stone-700">
+                        Distrito(s) Selecionado(s) ({selectedDistricts.length}):
+                      </span>
+                      <span className="text-stone-400">Pode selecionar mais que um distrito</span>
+                    </div>
+
+                    {/* Chips dos distritos selecionados */}
+                    <div className="flex flex-wrap gap-1.5 min-h-[38px] p-2 bg-white rounded-lg border border-stone-200 items-center">
+                      {selectedDistricts.length === 0 ? (
+                        <span className="text-xs text-stone-400 italic">Nenhum distrito selecionado. Escolha abaixo.</span>
+                      ) : (
+                        selectedDistricts.map((d) => (
+                          <span
+                            key={d}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#C81E2B]/10 border border-[#C81E2B]/30 text-[#C81E2B] text-xs font-semibold"
+                          >
+                            <MapPin className="w-3 h-3" />
+                            <span>{d}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDistrict(d)}
+                              className="hover:text-black hover:bg-[#C81E2B]/20 rounded p-0.5 transition-colors"
+                              title={`Remover distrito ${d}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Adicionar distrito */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        value=""
+                        onChange={(e) => handleAddDistrict(e.target.value)}
+                        className="text-xs py-1.5 px-3 rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-stone-400 focus:outline-hidden focus:border-[#C81E2B]"
+                      >
+                        <option value="">+ Adicionar Distrito à lista...</option>
+                        {PORTUGAL_DISTRICTS.filter(
+                          (d) => !d.includes('Nacional') && !selectedDistricts.includes(d)
+                        ).map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="flex flex-wrap items-center gap-1 text-[11px] text-stone-500">
+                        <span>Adicionar rápido:</span>
+                        {['Lisboa', 'Porto', 'Braga', 'Coimbra', 'Setúbal', 'Faro', 'Aveiro', 'Leiria'].map((d) => {
+                          if (selectedDistricts.includes(d)) return null;
+                          return (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => handleAddDistrict(d)}
+                              className="px-2 py-0.5 rounded bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition-colors"
+                            >
+                              + {d}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. SELEÇÃO DE CONCELHOS */}
+                  <div className="space-y-2 pt-3 border-t border-stone-200/70">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-stone-700">
+                        Concelho(s) Aplicável(eis) ({selectedCounties.length === 0 ? 'Todos os concelhos dos distritos' : `${selectedCounties.length} selecionado${selectedCounties.length !== 1 ? 's' : ''}`}):
+                      </span>
+                      {selectedCounties.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCounties([])}
+                          className="text-stone-400 hover:text-red-700 underline text-[11px]"
+                        >
+                          Limpar concelhos (aplicar a todos do distrito)
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Chips dos concelhos selecionados */}
+                    <div className="flex flex-wrap gap-1.5 min-h-[38px] p-2 bg-white rounded-lg border border-stone-200 max-h-36 overflow-y-auto items-center">
+                      {selectedCounties.length === 0 ? (
+                        <span className="text-xs text-stone-500 italic flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          Válido em <strong>todos os concelhos</strong> do(s) distrito(s) selecionado(s). Caso opere apenas em concelhos específicos, adicione-os abaixo.
+                        </span>
+                      ) : (
+                        selectedCounties.map((c) => (
+                          <span
+                            key={c}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-stone-100 border border-stone-300 text-stone-800 text-xs font-medium"
+                          >
+                            <span>{c}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCounty(c)}
+                              className="hover:text-red-600 hover:bg-stone-200 rounded p-0.5 transition-colors"
+                              title={`Remover concelho ${c}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Controles de concelhos */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        value=""
+                        onChange={(e) => handleAddCounty(e.target.value)}
+                        className="text-xs py-1.5 px-3 rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-stone-400 focus:outline-hidden focus:border-[#C81E2B] max-w-xs"
+                      >
+                        <option value="">+ Adicionar Concelho específico...</option>
+                        {selectedDistricts.map((d) => {
+                          const counties = PORTUGAL_COUNTIES_BY_DISTRICT[d] || [];
+                          const unselected = counties.filter((c) => !selectedCounties.includes(c));
+                          if (unselected.length === 0) return null;
+                          return (
+                            <optgroup key={d} label={`Distrito: ${d}`}>
+                              {unselected.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
+                      </select>
+
+                      {/* Botões para selecionar todos os concelhos de cada distrito */}
+                      {selectedDistricts.map((d) => {
+                        const counties = PORTUGAL_COUNTIES_BY_DISTRICT[d] || [];
+                        const allAdded = counties.length > 0 && counties.every((c) => selectedCounties.includes(c));
+                        if (counties.length === 0) return null;
+                        return (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => handleAddAllCountiesForDistrict(d)}
+                            disabled={allAdded}
+                            className="text-[11px] px-2.5 py-1 rounded bg-stone-100 border border-stone-200 text-stone-700 hover:bg-stone-200 disabled:opacity-50 transition-colors"
+                          >
+                            {allAdded ? `✓ Todos de ${d}` : `+ Todos os concelhos de ${d}`}
+                          </button>
+                        );
+                      })}
+
+                      {/* Campo livre para concelho extra */}
+                      <div className="flex items-center gap-1 text-xs">
+                        <input
+                          type="text"
+                          value={customCountyInput}
+                          onChange={(e) => setCustomCountyInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomCounty();
+                            }
+                          }}
+                          placeholder="Outro concelho / localidade..."
+                          className="py-1 px-2.5 rounded-lg border border-stone-300 text-xs w-44 focus:outline-hidden focus:border-[#C81E2B]"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCustomCounty}
+                          className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors"
+                          title="Adicionar localidade"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
