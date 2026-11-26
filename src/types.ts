@@ -63,14 +63,22 @@ export interface Partner {
 export interface Quota {
   id: number;
   user_id: number;
+  user_name?: string;
+  member_number?: string;
+  nif?: string;
+  email?: string;
+  phone?: string;
   plan_type: 'semestral' | 'anual';
   amount_cents: number;
   payment_method: string;
   reference: string;
-  status: string;
+  status: 'pago' | 'pendente' | 'cancelado' | string;
   valid_from: string;
   valid_until: string;
   created_at: string;
+  paid_at?: string | null;
+  confirmed_by?: string | null;
+  payment_details?: any;
 }
 
 export interface Receipt {

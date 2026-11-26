@@ -817,6 +817,139 @@ router.post('/profile', (req: Request, res: Response) => {
 // 3. QUOTAS & PAYMENTS
 // ==========================================
 
+// Helper centralizado para processar e confirmar o pagamento efetivo de uma quota
+export function processAndConfirmQuota(
+  quotaId: number,
+  confirmedBy: string = 'sistema',
+  ip?: string,
+  userAgent?: string
+) {
+  const row = db
+    .prepare(
+      `SELECT q.*, u.id as u_id, u.name, u.email, u.phone, u.member_number, u.nif, u.address, u.postal_code, u.city
+       FROM quotas q
+       JOIN users u ON u.id = q.user_id
+       WHERE q.id = ?`
+    )
+    .get(quotaId) as any;
+
+  if (!row) {
+    return { ok: false, error: 'Registo de quota não encontrado.' };
+  }
+
+  if (row.status === 'pago') {
+    return {
+      ok: true,
+      quota: row,
+      message: 'Esta quota já se encontra confirmada e paga.',
+      valid_until: row.valid_until,
+    };
+  }
+
+  const monthsToAdd = row.plan_type === 'semestral' ? 6 : 12;
+
+  // Calcular validade acumulada sobre a quota ativa atual (excluindo a quota em questão)
+  const currentStatus = getQuotaStatus(row.user_id);
+  let startDate: Date;
+
+  if (currentStatus.has_active_quota && currentStatus.valid_until) {
+    startDate = new Date(currentStatus.valid_until + 'T00:00:00');
+  } else {
+    startDate = new Date();
+  }
+
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + monthsToAdd);
+
+  const validFromStr = startDate.toISOString().split('T')[0];
+  const validUntilStr = endDate.toISOString().split('T')[0];
+  const nowIso = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE quotas
+    SET status = 'pago',
+        valid_from = ?,
+        valid_until = ?,
+        paid_at = datetime('now'),
+        confirmed_by = ?
+    WHERE id = ?
+  `).run(validFromStr, validUntilStr, confirmedBy, quotaId);
+
+  // Emissão automática do recibo oficial digital da LPCS
+  const existingReceipt = db.prepare('SELECT id FROM receipts WHERE quota_id = ?').get(quotaId);
+  if (!existingReceipt) {
+    const receiptText = `================================================
+LIGA PORTUGUESA CONTRA A SIDA (LPCS)
+IPSS · Pessoa Coletiva de Utilidade Pública
+NIPC: 502 665 548
+Sede: Praça Carlos Fabião, Loja 3A, 1600-316 Lisboa
+Tel: +351 213 479 376 | www.ligacontrasida.org
+------------------------------------------------
+RECIBO DE QUOTA Nº LPCS-REC-${quotaId.toString().padStart(6, '0')}
+Data de Emissão: ${nowIso.split('T')[0]}
+------------------------------------------------
+DADOS DO ASSOCIADO:
+Nome: ${row.name}
+Nº de Sócio: ${row.member_number}
+NIF: ${row.nif || 'Consumidor Final'}
+Morada: ${row.address || 'Portugal'}, ${row.postal_code || ''} ${row.city || ''}
+------------------------------------------------
+DESCRIÇÃO:
+Quota ${row.plan_type === 'semestral' ? 'Semestral (6 Meses)' : 'Anual (12 Meses)'}
+Período de Validade: ${validFromStr} até ${validUntilStr}
+Método de Pagamento: ${String(row.payment_method).toUpperCase()} (${row.reference})
+Valor Total Pago: ${(row.amount_cents / 100).toFixed(2)} EUR
+(Isento de IVA ao abrigo do artigo 9.º do CIVA)
+------------------------------------------------
+CONFIRMAÇÃO DE PROCESSAMENTO:
+Estado: PAGAMENTO EFETIVAMENTE PROCESSADO
+Processado por: ${confirmedBy}
+Data de Liquidação: ${nowIso.replace('T', ' ').slice(0, 19)}
+------------------------------------------------
+Obrigado pelo seu compromisso contínuo na luta contra
+a SIDA, no apoio a quem vive com VIH e na promoção
+da saúde e direitos humanos em Portugal.
+================================================`;
+
+    const receiptBase64 = Buffer.from(receiptText).toString('base64');
+    db.prepare(`
+      INSERT INTO receipts (
+        user_id, quota_id, original_name, mime_type, file_size, file_base64, notes
+      ) VALUES (?, ?, ?, 'text/plain', ?, ?, ?)
+    `).run(
+      row.user_id,
+      quotaId,
+      `Recibo_Quota_${row.plan_type.toUpperCase()}_LPCS_${validUntilStr}.txt`,
+      Buffer.byteLength(receiptText),
+      receiptBase64,
+      `Recibo oficial emitido após liquidação e confirmação do pagamento (${confirmedBy})`
+    );
+  }
+
+  logAudit(
+    row.user_id,
+    'quota_paga_confirmada',
+    `Quota ${row.plan_type} de ${(row.amount_cents / 100).toFixed(2)}€ confirmada e liquidada por ${confirmedBy}. Validade acumulada até ${validUntilStr}.`,
+    ip,
+    userAgent
+  );
+
+  return {
+    ok: true,
+    valid_from: validFromStr,
+    valid_until: validUntilStr,
+    quota: {
+      ...row,
+      status: 'pago',
+      valid_from: validFromStr,
+      valid_until: validUntilStr,
+      paid_at: nowIso,
+      confirmed_by: confirmedBy,
+    },
+    message: `Pagamento de quota processado e confirmado com sucesso! Os benefícios de associado foram renovados até ${validUntilStr}.`,
+  };
+}
+
 router.post('/quotas/pay', (req: Request, res: Response) => {
   const user = getSessionUser(req);
   if (!user) {
@@ -834,43 +967,83 @@ router.post('/quotas/pay', (req: Request, res: Response) => {
   const amountCents = plan_type === 'semestral' ? 1750 : 3500;
   const monthsToAdd = plan_type === 'semestral' ? 6 : 12;
 
-  // Calculate accumulated validity date!
-  // Find current active quota validity
+  // Previsão de início e fim da quota
   const currentStatus = getQuotaStatus(user.id);
   let startDate: Date;
-
   if (currentStatus.has_active_quota && currentStatus.valid_until) {
-    // Accumulate on top of existing valid_until!
     startDate = new Date(currentStatus.valid_until + 'T00:00:00');
   } else {
-    // Starts from today
     startDate = new Date();
   }
-
   const endDate = new Date(startDate);
   endDate.setMonth(endDate.getMonth() + monthsToAdd);
 
   const validFromStr = startDate.toISOString().split('T')[0];
   const validUntilStr = endDate.toISOString().split('T')[0];
 
-  // Generate reference
+  // Gerar dados específicos da plataforma de pagamento
   let reference = '';
+  let paymentDetails: any = {};
+
   if (payment_method === 'mbway') {
-    reference = `MBWAY-${phone_mbway || user.phone}`;
+    const phone = (phone_mbway || user.phone || '').trim().replace(/\s+/g, '');
+    reference = `MBWAY-${phone || '9XXXXXXXX'}`;
+    paymentDetails = {
+      method: 'mbway',
+      phone: phone || user.phone,
+      amount: plan_type === 'semestral' ? '17,50 €' : '35,00 €',
+      amount_cents: amountCents,
+      expires_in_minutes: 5,
+      instruction:
+        'Foi enviada uma notificação para o seu telemóvel. Abra a aplicação MB WAY e autorize o pagamento no prazo de 5 minutos.',
+    };
   } else if (payment_method === 'multibanco') {
     const ent = '21876';
-    const ref = Math.floor(100000000 + Math.random() * 900000000);
-    reference = `Ent: ${ent} | Ref: ${ref}`;
+    const rawRef = Math.floor(100000000 + Math.random() * 900000000).toString();
+    const formattedRef = rawRef.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+    reference = `Ent: ${ent} | Ref: ${formattedRef}`;
+    paymentDetails = {
+      method: 'multibanco',
+      entity: ent,
+      reference: formattedRef,
+      amount: plan_type === 'semestral' ? '17,50 €' : '35,00 €',
+      amount_cents: amountCents,
+      expires_in_hours: 48,
+      instruction:
+        'Dirija-se a uma caixa Multibanco ou utilize o Homebanking na opção "Pagamentos de Serviços/Compras" introduzindo a Entidade, Referência e Montante indicados.',
+    };
   } else if (payment_method === 'card') {
-    reference = `CARD-SIM-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+    const cardRef = `CARD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    reference = cardRef;
+    paymentDetails = {
+      method: 'card',
+      gateway: 'Reduniq / Stripe 3D-Secure',
+      reference: cardRef,
+      amount: plan_type === 'semestral' ? '17,50 €' : '35,00 €',
+      amount_cents: amountCents,
+      instruction:
+        'Introduza os dados do seu cartão bancário (Visa / Mastercard) para débito direto seguro com verificação 3D-Secure.',
+    };
   } else {
-    reference = `TRANSF-LPCS-${Date.now().toString().slice(-6)}`;
+    const transfRef = `LPCS-${user.member_number || user.id}-${Date.now().toString().slice(-4)}`;
+    reference = transfRef;
+    paymentDetails = {
+      method: 'transferencia',
+      iban: 'PT50 0033 0000 4567 8901 2345 6',
+      holder: 'Liga Portuguesa Contra a SIDA (LPCS)',
+      reference: transfRef,
+      amount: plan_type === 'semestral' ? '17,50 €' : '35,00 €',
+      amount_cents: amountCents,
+      instruction:
+        'Efetue a transferência para o IBAN indicado e coloque obrigatoriamente a referência no descritivo da transferência bancária.',
+    };
   }
 
+  // Registar a quota como PENDENTE de pagamento efetivo na plataforma
   const result = db.prepare(`
     INSERT INTO quotas (
-      user_id, plan_type, amount_cents, payment_method, reference, status, valid_from, valid_until
-    ) VALUES (?, ?, ?, ?, ?, 'pago', ?, ?)
+      user_id, plan_type, amount_cents, payment_method, reference, status, valid_from, valid_until, payment_details
+    ) VALUES (?, ?, ?, ?, ?, 'pendente', ?, ?, ?)
   `).run(
     user.id,
     plan_type,
@@ -878,67 +1051,105 @@ router.post('/quotas/pay', (req: Request, res: Response) => {
     payment_method,
     reference,
     validFromStr,
-    validUntilStr
+    validUntilStr,
+    JSON.stringify(paymentDetails)
   );
 
   const quotaId = Number(result.lastInsertRowid);
 
-  // Automatically generate official LPCS digital receipt
-  const receiptText = `================================================
-LIGA PORTUGUESA CONTRA A SIDA (LPCS)
-IPSS · Pessoa Coletiva de Utilidade Pública
-NIPC: 502 665 548
-Sede: Praça Carlos Fabião, Loja 3A, 1600-316 Lisboa
-Tel: +351 213 479 376 | www.ligacontrasida.org
-------------------------------------------------
-RECIBO DE QUOTA Nº LPCS-REC-${quotaId.toString().padStart(6, '0')}
-Data de Emissão: ${new Date().toISOString().split('T')[0]}
-------------------------------------------------
-DADOS DO ASSOCIADO:
-Nome: ${user.name}
-Nº de Sócio: ${user.member_number}
-NIF: ${user.nif}
-Morada: ${user.address}, ${user.postal_code} ${user.city}
-------------------------------------------------
-DESCRIÇÃO:
-Quota ${plan_type === 'semestral' ? 'Semestral (6 Meses)' : 'Anual (12 Meses)'}
-Período de Validade: ${validFromStr} até ${validUntilStr}
-Método: ${payment_method.toUpperCase()} (${reference})
-Valor Total Pago: ${(amountCents / 100).toFixed(2)} EUR
-(Isento de IVA ao abrigo do artigo 9.º do CIVA)
-------------------------------------------------
-Obrigado pelo seu compromisso contínuo na luta contra
-a SIDA, no apoio a quem vive com VIH e na promoção
-da saúde e direitos humanos em Portugal.
-================================================`;
-
-  const receiptBase64 = Buffer.from(receiptText).toString('base64');
-  db.prepare(`
-    INSERT INTO receipts (
-      user_id, quota_id, original_name, mime_type, file_size, file_base64, notes
-    ) VALUES (?, ?, ?, 'text/plain', ?, ?, ?)
-  `).run(
-    user.id,
-    quotaId,
-    `Recibo_Quota_${plan_type.toUpperCase()}_LPCS_${validUntilStr}.txt`,
-    Buffer.byteLength(receiptText),
-    receiptBase64,
-    `Recibo emitido automaticamente para o pagamento da quota ${plan_type}`
-  );
-
   logAudit(
     user.id,
-    'quota_paga',
-    `Quota ${plan_type} de ${(amountCents / 100).toFixed(2)}€ paga via ${payment_method}. Validade acumulada até ${validUntilStr}`,
+    'quota_pedido_gerado',
+    `Pedido de quota ${plan_type} (${(amountCents / 100).toFixed(2)}€ via ${payment_method}) gerado como pendente (#${quotaId})`,
     req.ip,
     req.headers['user-agent']
   );
 
   return res.json({
     success: true,
-    message: 'Pagamento processado com sucesso! A sua quota foi atualizada.',
-    valid_until: validUntilStr,
     quota_id: quotaId,
+    status: 'pendente',
+    plan_type,
+    amount_cents: amountCents,
+    payment_method,
+    reference,
+    payment_details: paymentDetails,
+    valid_until_expected: validUntilStr,
+    message:
+      'Pedido de pagamento gerado na plataforma. O benefício de associado apenas será renovado após a liquidação efetiva do pagamento.',
+  });
+});
+
+// Endpoint para simulação de confirmação pelo gateway ou pelo associado no teste
+router.post('/quotas/:id/confirm-simulation', (req: Request, res: Response) => {
+  const user = getSessionUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Inicie sessão para confirmar o pagamento.' });
+  }
+
+  const quotaId = Number(req.params.id);
+  const quota = db.prepare('SELECT * FROM quotas WHERE id = ?').get(quotaId) as any;
+  if (!quota) {
+    return res.status(404).json({ error: 'Quota não encontrada.' });
+  }
+
+  if (quota.user_id !== user.id && user.is_admin !== 1) {
+    return res.status(403).json({ error: 'Não tem permissão para aceder a esta quota.' });
+  }
+
+  const result = processAndConfirmQuota(
+    quotaId,
+    `gateway_${quota.payment_method}_autorizado`,
+    req.ip,
+    req.headers['user-agent']
+  );
+
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  return res.json({
+    success: true,
+    message: result.message,
+    valid_until: result.valid_until,
+    quota: result.quota,
+  });
+});
+
+// Endpoint para cancelamento de uma quota pendente pelo próprio sócio
+router.post('/quotas/:id/cancel', (req: Request, res: Response) => {
+  const user = getSessionUser(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Não autenticado' });
+  }
+
+  const quotaId = Number(req.params.id);
+  const quota = db.prepare('SELECT * FROM quotas WHERE id = ?').get(quotaId) as any;
+  if (!quota) {
+    return res.status(404).json({ error: 'Quota não encontrada.' });
+  }
+
+  if (quota.user_id !== user.id && user.is_admin !== 1) {
+    return res.status(403).json({ error: 'Sem permissão.' });
+  }
+
+  if (quota.status === 'pago') {
+    return res.status(400).json({ error: 'Não é possível cancelar uma quota já paga.' });
+  }
+
+  db.prepare("UPDATE quotas SET status = 'cancelado' WHERE id = ?").run(quotaId);
+
+  logAudit(
+    user.id,
+    'quota_cancelada',
+    `Quota #${quotaId} (${quota.amount_cents / 100}€) cancelada pelo utilizador`,
+    req.ip,
+    req.headers['user-agent']
+  );
+
+  return res.json({
+    success: true,
+    message: 'Pedido de pagamento de quota cancelado.',
   });
 });
 
@@ -2172,6 +2383,125 @@ router.post('/admin/users/:id/quota', requireAdmin, (req: Request, res: Response
   return res.json({
     success: true,
     message: `Quota atribuída com sucesso até ${validUntilStr}.`,
+  });
+});
+
+// Listar todas as quotas e pagamentos para a gestão administrativa
+router.get('/admin/quotas', requireAdmin, (req: Request, res: Response) => {
+  const { status, search } = req.query;
+
+  let query = `
+    SELECT q.*, u.name as user_name, u.member_number, u.nif, u.email, u.phone
+    FROM quotas q
+    JOIN users u ON u.id = q.user_id
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+
+  if (status && typeof status === 'string' && status !== 'all') {
+    query += ' AND q.status = ?';
+    params.push(status);
+  }
+
+  if (search && typeof search === 'string' && search.trim() !== '') {
+    query +=
+      ' AND (u.name LIKE ? OR u.member_number LIKE ? OR u.nif LIKE ? OR u.email LIKE ? OR q.reference LIKE ?)';
+    const term = `%${search.trim()}%`;
+    params.push(term, term, term, term, term);
+  }
+
+  query += ' ORDER BY q.created_at DESC';
+
+  const rows = db.prepare(query).all(...params) as any[];
+
+  const counts = db
+    .prepare(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'pago' THEN 1 ELSE 0 END) as paid,
+        SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) as cancelled,
+        COALESCE(SUM(CASE WHEN status = 'pago' THEN amount_cents ELSE 0 END), 0) as revenue_cents
+      FROM quotas
+    `)
+    .get() as any;
+
+  return res.json({
+    quotas: rows.map((r) => {
+      let payment_details = null;
+      try {
+        if (r.payment_details) payment_details = JSON.parse(r.payment_details);
+      } catch {
+        // ignore
+      }
+      return {
+        ...r,
+        payment_details,
+      };
+    }),
+    metrics: {
+      total: counts.total || 0,
+      pending: counts.pending || 0,
+      paid: counts.paid || 0,
+      cancelled: counts.cancelled || 0,
+      revenue_euros: (counts.revenue_cents / 100).toFixed(2),
+    },
+  });
+});
+
+// Confirmação manual de pagamento de quota pela administração
+router.post('/admin/quotas/:id/confirm', requireAdmin, (req: Request, res: Response) => {
+  const admin = getSessionUser(req)!;
+  const quotaId = Number(req.params.id);
+
+  const result = processAndConfirmQuota(
+    quotaId,
+    `admin:${admin.name} (${admin.member_number})`,
+    req.ip,
+    req.headers['user-agent']
+  );
+
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  return res.json({
+    success: true,
+    message: result.message,
+    valid_until: result.valid_until,
+    quota: result.quota,
+  });
+});
+
+// Cancelamento de pedido de quota pela administração
+router.post('/admin/quotas/:id/cancel', requireAdmin, (req: Request, res: Response) => {
+  const admin = getSessionUser(req)!;
+  const quotaId = Number(req.params.id);
+
+  const quota = db.prepare('SELECT * FROM quotas WHERE id = ?').get(quotaId) as any;
+  if (!quota) {
+    return res.status(404).json({ error: 'Registo de quota não encontrado.' });
+  }
+
+  if (quota.status === 'pago') {
+    return res.status(400).json({
+      error: 'Não é possível cancelar uma quota já paga. Utilize a opção de anular se pretender remover.',
+    });
+  }
+
+  db.prepare("UPDATE quotas SET status = 'cancelado' WHERE id = ?").run(quotaId);
+
+  logAudit(
+    admin.id,
+    'admin_cancelar_quota',
+    `Quota pendente #${quotaId} (${(quota.amount_cents / 100).toFixed(2)}€) cancelada pela administração.`,
+    req.ip,
+    req.headers['user-agent']
+  );
+
+  return res.json({
+    success: true,
+    message: 'Pedido de pagamento de quota cancelado com sucesso.',
   });
 });
 

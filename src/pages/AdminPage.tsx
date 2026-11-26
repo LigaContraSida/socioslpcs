@@ -32,6 +32,9 @@ import {
   LogOut,
   Upload,
   Image as ImageIcon,
+  CheckCheck,
+  Clock,
+  Loader2,
 } from 'lucide-react';
 
 interface AdminPageProps {
@@ -70,7 +73,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [loginSubmitting, setLoginSubmitting] = useState(false);
 
   // Admin Console state
-  const [activeTab, setActiveTab] = useState<'summary' | 'users' | 'partners' | 'inquiries' | 'notifications' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'summary' | 'users' | 'quotas' | 'partners' | 'inquiries' | 'notifications' | 'audit'>('users');
+  const [adminQuotasList, setAdminQuotasList] = useState<any[]>([]);
+  const [adminQuotasMetrics, setAdminQuotasMetrics] = useState<{
+    total: number;
+    pending: number;
+    paid: number;
+    cancelled: number;
+    revenue_euros: string;
+  }>({ total: 0, pending: 0, paid: 0, cancelled: 0, revenue_euros: '0.00' });
+  const [adminQuotaFilter, setAdminQuotaFilter] = useState<'all' | 'pendente' | 'pago' | 'cancelado'>('all');
+  const [adminQuotaSearch, setAdminQuotaSearch] = useState('');
+  const [confirmingQuotaId, setConfirmingQuotaId] = useState<number | null>(null);
   const [summaryData, setSummaryData] = useState<any | null>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [partnersList, setPartnersList] = useState<any[]>([]);
@@ -270,6 +284,67 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     }
   };
 
+  const loadAdminQuotas = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (adminQuotaFilter !== 'all') params.set('status', adminQuotaFilter);
+      if (adminQuotaSearch.trim()) params.set('search', adminQuotaSearch.trim());
+      const res = await fetch(`/api/admin/quotas?${params.toString()}`, { credentials: 'same-origin' });
+      const data = await res.json();
+      if (res.ok) {
+        setAdminQuotasList(data.quotas || []);
+        if (data.metrics) setAdminQuotasMetrics(data.metrics);
+      }
+    } catch (err) {
+      console.error('Error fetching admin quotas:', err);
+    }
+  };
+
+  const handleConfirmQuotaPayment = async (quotaId: number) => {
+    setConfirmingQuotaId(quotaId);
+    try {
+      const res = await fetch(`/api/admin/quotas/${quotaId}/confirm`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Erro ao confirmar pagamento.');
+        setConfirmingQuotaId(null);
+        return;
+      }
+      showToast(data.message || 'Pagamento confirmado com sucesso!');
+      setConfirmingQuotaId(null);
+      loadAdminQuotas();
+      loadUsers();
+      if (managingUserId) {
+        openManageMember(managingUserId, 'quotas');
+      }
+    } catch (err) {
+      showToast('Falha ao comunicar com o servidor.');
+      setConfirmingQuotaId(null);
+    }
+  };
+
+  const handleCancelQuota = async (quotaId: number) => {
+    if (!window.confirm('Tem a certeza que deseja cancelar este pedido de quota?')) return;
+    try {
+      const res = await fetch(`/api/admin/quotas/${quotaId}/cancel`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'Erro ao cancelar.');
+        return;
+      }
+      showToast('Pedido de quota cancelado.');
+      loadAdminQuotas();
+    } catch (err) {
+      showToast('Falha ao comunicar com o servidor.');
+    }
+  };
+
   useEffect(() => {
     if (!user || !isAdmin) {
       setLoading(false);
@@ -283,8 +358,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       fetch('/api/admin/partners', { credentials: 'same-origin' }).then((r) => r.json()),
       fetch('/api/admin/inquiries', { credentials: 'same-origin' }).then((r) => r.json()),
       fetch('/api/admin/email-notifications', { credentials: 'same-origin' }).then((r) => r.json()),
+      fetch('/api/admin/quotas', { credentials: 'same-origin' }).then((r) => r.json()),
     ])
-      .then(([summary, users, partners, inquiries, emailNotifs]) => {
+      .then(([summary, users, partners, inquiries, emailNotifs, quotas]) => {
         setSummaryData(summary);
         if (summary.recentLogs) setAuditLogs(summary.recentLogs);
         setUsersList(users.users || []);
@@ -292,6 +368,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         setInquiriesList(inquiries.inquiries || []);
         setEmailNotifications(emailNotifs.notifications || []);
         if (emailNotifs.config) setEmailConfig(emailNotifs.config);
+        if (quotas.quotas) setAdminQuotasList(quotas.quotas);
+        if (quotas.metrics) setAdminQuotasMetrics(quotas.metrics);
         setLoading(false);
       })
       .catch((err) => {
@@ -299,6 +377,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         setLoading(false);
       });
   }, [user?.id, isAdmin]);
+
+  useEffect(() => {
+    if (user && isAdmin && activeTab === 'quotas') {
+      loadAdminQuotas();
+    }
+  }, [adminQuotaFilter, adminQuotaSearch, activeTab, user?.id, isAdmin]);
 
   useEffect(() => {
     if (user && isAdmin && activeTab === 'users') {
@@ -1113,6 +1197,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       <div className="flex border-b border-stone-200 gap-6 overflow-x-auto">
         {[
           { id: 'users', name: 'Gestão de Associados', icon: Users, count: metrics.totalAssociados },
+          {
+            id: 'quotas',
+            name: 'Quotas & Pagamentos',
+            icon: CreditCard,
+            count: adminQuotasMetrics.pending > 0 ? `${adminQuotasMetrics.pending} pendentes` : `${adminQuotasMetrics.total}`,
+            alert: adminQuotasMetrics.pending > 0,
+          },
           { id: 'summary', name: 'Resumo Geral', icon: TrendingUp },
           { id: 'partners', name: 'Parceiros', icon: Store, count: metrics.parceirosAtivos },
           { id: 'inquiries', name: 'Propostas de Parceria', icon: Building2, count: inquiriesList.length },
@@ -1135,7 +1226,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               <Icon className="w-4 h-4" />
               <span>{tab.name}</span>
               {tab.count !== undefined && (
-                <span className="font-mono text-stone-400 font-normal">({tab.count})</span>
+                <span
+                  className={`font-mono text-xs px-1.5 py-0.5 rounded-full ${
+                    tab.alert
+                      ? 'bg-amber-100 text-amber-800 font-bold border border-amber-300'
+                      : 'text-stone-400 font-normal'
+                  }`}
+                >
+                  {tab.count}
+                </span>
               )}
             </button>
           );
@@ -1347,6 +1446,267 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: QUOTAS & PAGAMENTOS */}
+          {activeTab === 'quotas' && (
+            <div className="space-y-6">
+              {/* Metrics cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-xl border border-stone-200">
+                  <div className="flex items-center justify-between text-stone-500 mb-2">
+                    <span className="font-condensed text-xs font-bold uppercase tracking-wider">Total de Quotas</span>
+                    <CreditCard className="w-4 h-4 text-stone-400" />
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-[#141619] tabular-nums">
+                    {adminQuotasMetrics.total}
+                  </div>
+                  <span className="text-xs text-stone-500 mt-1 block">Histórico de registos</span>
+                </div>
+
+                <div className={`p-5 rounded-xl border ${adminQuotasMetrics.pending > 0 ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-stone-200'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-condensed text-xs font-bold uppercase tracking-wider text-amber-800">
+                      Pendentes de Pagamento
+                    </span>
+                    <Clock className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-amber-700 tabular-nums">
+                    {adminQuotasMetrics.pending}
+                  </div>
+                  <span className="text-xs text-amber-700 font-medium mt-1 block">
+                    {adminQuotasMetrics.pending === 1 ? '1 quota a aguardar pagamento' : `${adminQuotasMetrics.pending} quotas a aguardar validação`}
+                  </span>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl border border-stone-200">
+                  <div className="flex items-center justify-between text-stone-500 mb-2">
+                    <span className="font-condensed text-xs font-bold uppercase tracking-wider">Quotas Pagas</span>
+                    <CheckCheck className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-emerald-700 tabular-nums">
+                    {adminQuotasMetrics.paid}
+                  </div>
+                  <span className="text-xs text-stone-500 mt-1 block">Regularizadas e ativas</span>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl border border-stone-200">
+                  <div className="flex items-center justify-between text-stone-500 mb-2">
+                    <span className="font-condensed text-xs font-bold uppercase tracking-wider">Receita Confirmada</span>
+                    <TrendingUp className="w-4 h-4 text-stone-400" />
+                  </div>
+                  <div className="text-2xl font-mono font-bold text-[#141619] tabular-nums">
+                    {adminQuotasMetrics.revenue.toFixed(2)} €
+                  </div>
+                  <span className="text-xs text-stone-500 mt-1 block">Fundos angariados LPCS</span>
+                </div>
+              </div>
+
+              {/* Filters and search */}
+              <div className="bg-white rounded-xl border border-stone-200 p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                  {[
+                    { id: 'todos', label: 'Todas', count: adminQuotasMetrics.total },
+                    { id: 'pendente', label: 'Pendentes', count: adminQuotasMetrics.pending, highlight: adminQuotasMetrics.pending > 0 },
+                    { id: 'pago', label: 'Pagas', count: adminQuotasMetrics.paid },
+                    { id: 'cancelado', label: 'Canceladas', count: adminQuotasMetrics.cancelled },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setAdminQuotaFilter(f.id as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                        adminQuotaFilter === f.id
+                          ? 'bg-[#141619] text-white'
+                          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                      }`}
+                    >
+                      <span>{f.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                        adminQuotaFilter === f.id
+                          ? 'bg-stone-800 text-white'
+                          : f.highlight
+                          ? 'bg-amber-200 text-amber-900 font-bold'
+                          : 'bg-stone-200 text-stone-700'
+                      }`}>
+                        {f.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative min-w-[240px]">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={adminQuotaSearch}
+                    onChange={(e) => setAdminQuotaSearch(e.target.value)}
+                    placeholder="Pesquisar por sócio, NIF ou ref..."
+                    className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-[#C81E2B]"
+                  />
+                  {adminQuotaSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAdminQuotaSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Quotas Table */}
+              <div className="bg-white rounded-xl border border-stone-200 overflow-hidden shadow-sm">
+                {adminQuotasList.length === 0 ? (
+                  <div className="p-12 text-center space-y-3">
+                    <CreditCard className="w-10 h-10 text-stone-300 mx-auto" />
+                    <p className="text-sm font-semibold text-stone-700">Nenhuma quota encontrada</p>
+                    <p className="text-xs text-stone-500">
+                      Não existem quotas que correspondam aos filtros selecionados.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-stone-600">
+                      <thead className="bg-[#FAF8F5] text-[11px] uppercase font-bold tracking-wider text-stone-500 border-b border-stone-200">
+                        <tr>
+                          <th className="py-3 px-4">Associado</th>
+                          <th className="py-3 px-3">Plano & Período</th>
+                          <th className="py-3 px-3">Pagamento / Ref.</th>
+                          <th className="py-3 px-3">Valor</th>
+                          <th className="py-3 px-3">Estado</th>
+                          <th className="py-3 px-3">Validade</th>
+                          <th className="py-3 px-4 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {adminQuotasList.map((q) => {
+                          const isPending = q.status === 'pendente';
+                          const isPaid = q.status === 'pago';
+                          const isProcessingThis = confirmingQuotaId === q.id;
+
+                          let parsedDetails: any = null;
+                          if (q.payment_details) {
+                            try {
+                              parsedDetails = typeof q.payment_details === 'string' ? JSON.parse(q.payment_details) : q.payment_details;
+                            } catch {
+                              parsedDetails = null;
+                            }
+                          }
+
+                          return (
+                            <tr key={q.id} className="hover:bg-stone-50 transition-colors">
+                              <td className="py-3.5 px-4">
+                                <div className="font-bold text-[#141619]">{q.user_name || '—'}</div>
+                                <div className="text-[11px] text-stone-500 flex items-center gap-2 mt-0.5">
+                                  <span className="font-mono text-stone-700 font-semibold">{q.member_number || 'Sem Nº'}</span>
+                                  <span>·</span>
+                                  <span>NIF {q.nif || '—'}</span>
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <span className="font-semibold text-[#141619] capitalize">
+                                  {q.plan_type === 'anual' ? 'Quota Anual (12M)' : q.plan_type === 'semestral' ? 'Quota Semestral (6M)' : q.plan_type}
+                                </span>
+                                <div className="text-[11px] text-stone-500 font-mono mt-0.5">Ano {q.year}</div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-medium text-stone-800 capitalize flex items-center gap-1.5">
+                                  <span>{q.payment_method === 'multibanco' ? 'Multibanco' : q.payment_method === 'mbway' ? 'MB WAY' : q.payment_method === 'card' ? 'Cartão' : q.payment_method === 'transfer' ? 'Transferência' : q.payment_method}</span>
+                                </div>
+                                <div className="text-[11px] font-mono text-stone-500 mt-0.5 truncate max-w-[180px]">
+                                  {parsedDetails?.entity && parsedDetails?.reference ? (
+                                    <span>Ent: {parsedDetails.entity} · Ref: {parsedDetails.reference}</span>
+                                  ) : parsedDetails?.phone ? (
+                                    <span>Tlm: {parsedDetails.phone}</span>
+                                  ) : (
+                                    <span>Ref: {q.reference}</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <span className="font-mono font-bold text-sm text-[#141619] tabular-nums">
+                                  {(q.amount_cents / 100).toFixed(2)} €
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                {isPending ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                                    <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                                    <span>Pendente</span>
+                                  </span>
+                                ) : isPaid ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <CheckCheck className="w-3 h-3 text-emerald-600" />
+                                    <span>Pago</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-stone-100 text-stone-600 border border-stone-200">
+                                    Cancelado
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3 font-mono text-[11px] text-stone-600 tabular-nums">
+                                {q.valid_from && q.valid_until ? (
+                                  <span>{q.valid_from} → {q.valid_until}</span>
+                                ) : (
+                                  <span className="text-stone-400 italic">Após confirmação</span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-4 text-right">
+                                {isPending ? (
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      disabled={isProcessingThis}
+                                      onClick={() => handleConfirmQuotaPayment(q.id)}
+                                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                                      title="Confirmar recebimento do valor e ativar benefícios do sócio"
+                                    >
+                                      {isProcessingThis ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <CheckCheck className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>Confirmar Pagamento</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelQuota(q.id)}
+                                      className="px-2.5 py-1.5 rounded-lg border border-stone-300 hover:bg-stone-100 text-stone-600 font-medium text-xs transition-colors"
+                                      title="Cancelar este pedido de quota"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                ) : isPaid ? (
+                                  <div className="text-[11px] text-stone-500">
+                                    {q.paid_at ? (
+                                      <span className="block font-medium text-emerald-800">Pago a {new Date(q.paid_at).toLocaleDateString('pt-PT')}</span>
+                                    ) : null}
+                                    <span className="text-stone-400 font-mono text-[10px]">Conf: {q.confirmed_by || 'sistema'}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-stone-400 text-[11px]">—</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2695,57 +3055,108 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <th className="py-2.5 px-4">Data</th>
                                 <th className="py-2.5 px-3">Plano</th>
                                 <th className="py-2.5 px-3">Valor</th>
-                                <th className="py-2.5 px-3">Referência</th>
+                                <th className="py-2.5 px-3">Estado</th>
                                 <th className="py-2.5 px-3">Validade</th>
                                 <th className="py-2.5 px-4 text-right">Ação</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-stone-100">
-                              {memberDetail.quotas.map((q: any) => (
-                                <tr key={q.id}>
-                                  <td className="py-3 px-4 tabular-nums">
-                                    {new Date(q.created_at).toLocaleDateString('pt-PT')}
-                                  </td>
-                                  <td className="py-3 px-3 font-bold text-[#141619] capitalize">
-                                    {q.plan_type} ({q.payment_method})
-                                  </td>
-                                  <td className="py-3 px-3 font-mono font-bold text-[#141619] tabular-nums">
-                                    {(q.amount_cents / 100).toFixed(2)} €
-                                  </td>
-                                  <td className="py-3 px-3 font-mono text-[11px]">{q.reference}</td>
-                                  <td className="py-3 px-3 font-mono tabular-nums">
-                                    {q.valid_from} → {q.valid_until}
-                                  </td>
-                                  <td className="py-3 px-4 text-right whitespace-nowrap">
-                                    {confirmRemoveQuotaId === q.id ? (
-                                      <span className="inline-flex items-center gap-1.5">
+                              {memberDetail.quotas.map((q: any) => {
+                                const isPending = q.status === 'pendente';
+                                const isPaid = q.status === 'pago';
+                                const isProcessingThis = confirmingQuotaId === q.id;
+
+                                return (
+                                  <tr key={q.id}>
+                                    <td className="py-3 px-4 tabular-nums">
+                                      {new Date(q.created_at).toLocaleDateString('pt-PT')}
+                                    </td>
+                                    <td className="py-3 px-3 font-bold text-[#141619] capitalize">
+                                      <div>{q.plan_type} ({q.payment_method})</div>
+                                      <div className="font-mono text-[10px] text-stone-400 font-normal">Ref: {q.reference}</div>
+                                    </td>
+                                    <td className="py-3 px-3 font-mono font-bold text-[#141619] tabular-nums">
+                                      {(q.amount_cents / 100).toFixed(2)} €
+                                    </td>
+                                    <td className="py-3 px-3">
+                                      {isPending ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                          <Clock className="w-2.5 h-2.5 text-amber-600 animate-pulse" />
+                                          Pendente
+                                        </span>
+                                      ) : isPaid ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                          <CheckCheck className="w-2.5 h-2.5 text-emerald-600" />
+                                          Pago
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-stone-100 text-stone-600">
+                                          Cancelado
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-3 font-mono tabular-nums text-[11px]">
+                                      {q.valid_from && q.valid_until ? (
+                                        <span>{q.valid_from} → {q.valid_until}</span>
+                                      ) : (
+                                        <span className="text-stone-400 italic">Após confirmação</span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                                      {isPending ? (
+                                        <div className="inline-flex items-center gap-1.5 justify-end">
+                                          <button
+                                            type="button"
+                                            disabled={isProcessingThis}
+                                            onClick={() => handleConfirmQuotaPayment(q.id)}
+                                            className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm transition-colors"
+                                            title="Confirmar pagamento e ativar quotas/benefícios imediatamente"
+                                          >
+                                            {isProcessingThis ? (
+                                              <Loader2 className="w-3 h-3 animate-spin" />
+                                            ) : (
+                                              <CheckCheck className="w-3 h-3" />
+                                            )}
+                                            <span>Confirmar Pagamento</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCancelQuota(q.id)}
+                                            className="px-2 py-1 rounded-md border border-stone-300 text-stone-500 hover:text-stone-700 text-[11px]"
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </div>
+                                      ) : confirmRemoveQuotaId === q.id ? (
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteQuota(q.id)}
+                                            className="px-2 py-1 rounded bg-[#C81E2B] text-white text-[11px] font-bold"
+                                          >
+                                            Confirmar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmRemoveQuotaId(null)}
+                                            className="px-2 py-1 rounded border border-stone-300 text-[11px]"
+                                          >
+                                            Não
+                                          </button>
+                                        </span>
+                                      ) : (
                                         <button
                                           type="button"
-                                          onClick={() => handleDeleteQuota(q.id)}
-                                          className="px-2 py-1 rounded bg-[#C81E2B] text-white text-[11px] font-bold"
+                                          onClick={() => setConfirmRemoveQuotaId(q.id)}
+                                          className="text-[11px] font-semibold text-stone-500 hover:text-[#C81E2B]"
                                         >
-                                          Confirmar
+                                          Anular
                                         </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setConfirmRemoveQuotaId(null)}
-                                          className="px-2 py-1 rounded border border-stone-300 text-[11px]"
-                                        >
-                                          Não
-                                        </button>
-                                      </span>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmRemoveQuotaId(q.id)}
-                                        className="text-[11px] font-semibold text-stone-500 hover:text-[#C81E2B]"
-                                      >
-                                        Anular
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>

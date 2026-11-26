@@ -228,6 +228,10 @@ export function initDb() {
   ensureColumn('partner_inquiries', 'signed_protocol_mime', 'TEXT');
   ensureColumn('partner_inquiries', 'signed_protocol_base64', 'TEXT');
   ensureColumn('partner_inquiries', 'signed_protocol_uploaded_at', 'TEXT');
+
+  ensureColumn('quotas', 'paid_at', 'TEXT');
+  ensureColumn('quotas', 'confirmed_by', 'TEXT');
+  ensureColumn('quotas', 'payment_details', 'TEXT');
   ensureColumn('partner_inquiries', 'counter_signed_protocol_name', 'TEXT');
   ensureColumn('partner_inquiries', 'counter_signed_protocol_mime', 'TEXT');
   ensureColumn('partner_inquiries', 'counter_signed_protocol_base64', 'TEXT');

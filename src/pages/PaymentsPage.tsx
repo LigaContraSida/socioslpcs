@@ -7,7 +7,10 @@ import {
   Trash2,
   CheckCircle2,
   XCircle,
+  Clock,
+  CreditCard,
 } from 'lucide-react';
+import { QuotaPaymentModal } from '../components/QuotaPaymentModal.tsx';
 
 interface PaymentsPageProps {
   user: User;
@@ -25,6 +28,8 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ user, onRefreshUser 
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedQuotaForPayment, setSelectedQuotaForPayment] = useState<any | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -375,8 +380,43 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ user, onRefreshUser 
                     <td className="py-3.5 px-4 font-mono text-stone-700 tabular-nums">
                       {q.valid_from} a {q.valid_until}
                     </td>
-                    <td className="py-3.5 px-6 text-right font-semibold text-emerald-700 capitalize">
-                      {q.status}
+                    <td className="py-3.5 px-6 text-right whitespace-nowrap">
+                      {q.status === 'pendente' ? (
+                        <div className="inline-flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px] uppercase">
+                            <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                            <span>Pendente</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedQuotaForPayment({
+                                quota_id: q.id,
+                                status: q.status,
+                                plan_type: q.plan_type,
+                                amount_cents: q.amount_cents,
+                                payment_method: q.payment_method,
+                                reference: q.reference,
+                                payment_details: q.payment_details,
+                                valid_until_expected: q.valid_until,
+                              });
+                              setPaymentModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 rounded-md bg-[#C81E2B] hover:bg-[#A11622] text-white text-[11px] font-bold transition-colors shadow-xs"
+                          >
+                            Pagar
+                          </button>
+                        </div>
+                      ) : q.status === 'pago' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] uppercase">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Pago</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 font-bold text-[10px] uppercase">
+                          {q.status}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -385,6 +425,17 @@ export const PaymentsPage: React.FC<PaymentsPageProps> = ({ user, onRefreshUser 
           </div>
         )}
       </div>
+
+      {/* Plataforma de Pagamento de Quotas Modal */}
+      <QuotaPaymentModal
+        open={paymentModalOpen}
+        quotaData={selectedQuotaForPayment}
+        onClose={() => setPaymentModalOpen(false)}
+        onSuccess={() => {
+          onRefreshUser();
+          loadData();
+        }}
+      />
     </div>
   );
 };
